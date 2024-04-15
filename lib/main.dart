@@ -4,19 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:mesibo_flutter_sdk/mesibo.dart';
-import 'package:provider/provider.dart';
 import 'package:restart_app/restart_app.dart';
-
-class MessagesProvider extends ChangeNotifier {
-  List<MesiboMessage> _messages = [];
-
-  List<MesiboMessage> get messages => _messages;
-
-  void addMessage(MesiboMessage newMessage) {
-    _messages.add(newMessage);
-    notifyListeners();
-  }
-}
 
 void main() async {
   runApp(const FirstMesiboApp());
@@ -27,21 +15,18 @@ class FirstMesiboApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (context) => MessagesProvider(),
-      child: MaterialApp(
-        title: 'Mesibo Flutter Demo',
-        theme: ThemeData(
-          primarySwatch: Colors.blueGrey,
-        ),
-        home: Scaffold(
-          appBar: AppBar(
-            title: const Text("First Mesibo App"),
-          ),
-          body: const HomeWidget(),
-        ),
-        debugShowCheckedModeBanner: false,
+    return MaterialApp(
+      title: 'Mesibo Flutter Demo',
+      theme: ThemeData(
+        primarySwatch: Colors.blueGrey,
       ),
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text("First Mesibo App"),
+        ),
+        body: const HomeWidget(),
+      ),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -54,7 +39,10 @@ class HomeWidget extends StatefulWidget {
 }
 
 class _HomeWidgetState extends State<HomeWidget>
-    implements MesiboConnectionListener, MesiboMessageListener {
+    implements
+        MesiboConnectionListener,
+        MesiboMessageListener,
+        MesiboSyncListener {
   Mesibo mesibo = Mesibo();
   String mesiboStatus = 'Mesibo status: Not Connected.';
   bool isMesiboInit = false;
@@ -64,10 +52,12 @@ class _HomeWidgetState extends State<HomeWidget>
   types.User? user;
   int unReadMessagesCount = 0;
   int? selectedUser;
+  ValueNotifier<List<types.Message>> profileMessages = ValueNotifier([]);
+  ValueNotifier<List<types.Message>> summaryMessages = ValueNotifier([]);
 
   initProfilesUser1() async {
     selfProfile = await mesibo.getSelfProfile() as MesiboProfile;
-    remoteProfile = await mesibo.getUserProfile('35');
+    remoteProfile = await mesibo.getUserProfile('11');
     user = types.User(
       id: selfProfile!.address.toString(),
       firstName: selfProfile!.name,
@@ -78,7 +68,7 @@ class _HomeWidgetState extends State<HomeWidget>
 
   initProfilesUser2() async {
     selfProfile = await mesibo.getSelfProfile() as MesiboProfile;
-    remoteProfile = await mesibo.getUserProfile('55');
+    remoteProfile = await mesibo.getUserProfile('2');
     user = types.User(
       id: selfProfile!.address.toString(),
       firstName: selfProfile!.name,
@@ -112,61 +102,156 @@ class _HomeWidgetState extends State<HomeWidget>
 
   initMesiboUser1() async {
     await mesibo.setAccessToken(
-        '864b5bd17f61d46f826f59dbf1aed4d69a1fb6fc14915eff4ab25etaa336df1374');
+        '759b6a38bf5b8867f823ea2a6d96e0a4e0c129d8a31fba3f38eaa4af797za4175518091');
     mesibo.setListener(this);
-    await mesibo.setDatabase('55.db');
-    await mesibo.restoreDatabase('55.db', 9999);
+    await mesibo.setDatabase("6464762.db");
+    await mesibo.restoreDatabase('6464762.db', 9999);
     await mesibo.start();
+
     isMesiboInit = true;
     MesiboReadSession rs = MesiboReadSession.createReadSummarySession(this);
     await rs.read(100);
-    rs = MesiboReadSession.createReadSession(this);
-    await rs.read(100);
+
     setState(() {});
   }
 
   initMesiboUser2() async {
     await mesibo.setAccessToken(
-        '59864dc0c3f480fd18a16749efc7fbd73e9ca597eaa3b85edd4a5b6enabaaece8af5');
+        'af34e7778c1589c1074dc2cb7e0293056995f96773d3983ecc4b114dwacb66a921ae');
     mesibo.setListener(this);
-    await mesibo.setDatabase('35.db');
-    await mesibo.restoreDatabase('35.db', 9999);
+    await mesibo.setDatabase('6464711.db');
+    await mesibo.restoreDatabase('6464711.db', 9999);
     await mesibo.start();
     isMesiboInit = true;
     MesiboReadSession rs = MesiboReadSession.createReadSummarySession(this);
-    await rs.read(100);
-    rs = MesiboReadSession.createReadSession(this);
     await rs.read(100);
     setState(() {});
   }
 
   @override
   void Mesibo_onMessage(MesiboMessage message) {
-    Provider.of<MessagesProvider>(context, listen: false).addMessage(message);
-    // mesiboMessages.add(message);
-    setState(() {});
+    // print(
+    // "message : ${message.message} , isSummarry :  ${message.isDbSummaryMessage()}");
+    if (message.isDbSummaryMessage()) {
+      types.User author = types.User(
+          id: message.profile!.address.toString(),
+          firstName: message.profile!.name ?? 'No name',
+          role: types.Role.user);
+      types.Message m = types.TextMessage(
+        id: message.mid.toString(),
+        author: author,
+        type: types.MessageType.text,
+        text: message.message ?? '',
+        createdAt: message.ts?.ts,
+      );
+      types.Message? msg = summaryMessages.value
+          .where((element) => element.id == m.id)
+          .lastOrNull;
+      if (msg == null) {
+        //only add if not added
+        final temp = summaryMessages.value;
+        temp.add(m);
+        temp.sort(
+          (a, b) {
+            final diff = (b.createdAt ?? 0) - (a.createdAt ?? 0);
+            if (diff < 0) {
+              return 0;
+            } else if (diff > 0) {
+              return 1;
+            } else {
+              return 0;
+            }
+          },
+        );
+
+        summaryMessages.value = [...temp];
+      }
+    } else {
+      types.User currentUser = user!;
+      types.User remoteUser = types.User(
+          id: message.profile!.address.toString(),
+          firstName: message.profile!.name,
+          role: types.Role.user);
+      types.Message m;
+      if (message.isOutgoing()) {
+        m = types.TextMessage(
+          id: message.mid.toString(),
+          author: currentUser,
+          type: types.MessageType.text,
+          text: message.message ?? '',
+          createdAt: message.ts?.ts,
+        );
+      } else {
+        m = types.TextMessage(
+            id: message.mid.toString(),
+            author: remoteUser,
+            type: types.MessageType.text,
+            text: message.message ?? '',
+            createdAt: message.ts?.ts);
+      }
+
+      types.Message? msg = profileMessages.value
+          .where((element) => element.id == m.id)
+          .lastOrNull;
+      if (msg == null) {
+        //only add if not added
+        final temp = profileMessages.value;
+        temp.add(m);
+        temp.sort(
+          (a, b) {
+            final diff = (b.createdAt ?? 0) - (a.createdAt ?? 0);
+            if (diff < 0) {
+              return 0;
+            } else if (diff > 0) {
+              return 1;
+            } else {
+              return 0;
+            }
+          },
+        );
+
+        profileMessages.value = [...temp];
+      }
+
+      types.Message? msg2 = summaryMessages.value
+          .where((element) => element.id == m.id)
+          .lastOrNull;
+      if (msg2 == null) {
+        //only add if not added
+        final temp = summaryMessages.value;
+        temp.add(m);
+        temp.sort(
+          (a, b) {
+            final diff = (b.createdAt ?? 0) - (a.createdAt ?? 0);
+            if (diff < 0) {
+              return 0;
+            } else if (diff > 0) {
+              return 1;
+            } else {
+              return 0;
+            }
+          },
+        );
+
+        summaryMessages.value = [...temp];
+        print(summaryMessages.value
+            .map((e) => (e as types.TextMessage).text)
+            .join(' , '));
+      }
+    }
   }
 
-  @override
-  void Mesibo_onMessageStatus(MesiboMessage message) {
-    print('Mesibo_onMessageStatus: ' + message.status.toString());
-  }
-
-  @override
-  void Mesibo_onMessageUpdate(MesiboMessage message) {
-    print('Mesibo_onMessageUpdate: ' + message.message!);
-  }
-
-  _handleSendPressed(types.PartialText partialText) {
+  _handleSendPressed(types.PartialText partialText) async {
     if (remoteProfile == null) return;
     MesiboMessage message = remoteProfile!.newMessage();
     message.message = partialText.text;
+    message.mid = await mesibo.getUniqueMessageId();
     message.send();
-    setState(() {});
   }
 
   void getUnreadMessagesCount() async {
-    unReadMessagesCount = await remoteProfile!.getUnreadMessageCount();
+    final count = await remoteProfile?.getUnreadMessageCount();
+    unReadMessagesCount = count ?? 0;
     setState(() {});
   }
 
@@ -233,8 +318,15 @@ class _HomeWidgetState extends State<HomeWidget>
                           context,
                           MaterialPageRoute(
                             builder: (context) => ChatScreen(
-                              handleSendPressed: _handleSendPressed,
                               user: user ?? const types.User(id: '0'),
+                              selectedUser: selectedUser!,
+                              messagesValueListenable: profileMessages,
+                              sendMsg: _handleSendPressed,
+                              readProfileMsg: () {
+                                final rs =
+                                    remoteProfile!.createReadSession(this);
+                                rs.read(100);
+                              },
                             ),
                           ),
                         );
@@ -246,7 +338,10 @@ class _HomeWidgetState extends State<HomeWidget>
                         ),
                         child: ListTile(
                           leading: CircleAvatar(
-                            child: Text(remoteProfile?.name?[0] ?? 'N'),
+                            child: Text(
+                                (remoteProfile?.name?.trim()?.isEmpty ?? true)
+                                    ? 'N'
+                                    : remoteProfile!.name![0]),
                           ),
                           title: Text(
                             remoteProfile?.name ?? 'No name',
@@ -256,22 +351,14 @@ class _HomeWidgetState extends State<HomeWidget>
                             ),
                           ),
                           subtitle: Builder(builder: (context) {
-                            MesiboMessage? lastMessage;
-                            if (Provider.of<MessagesProvider>(context,
-                                    listen: false)
-                                .messages
-                                .isNotEmpty) {
-                              lastMessage = Provider.of<MessagesProvider>(
-                                      context,
-                                      listen: false)
-                                  .messages
-                                  .last;
-                            }
+                            final types.Message? lastMessage;
+
+                            lastMessage = summaryMessages.value.firstOrNull;
 
                             return Text(
                               lastMessage == null
                                   ? ''
-                                  : '${lastMessage.isIncoming() ? remoteProfile?.name ?? 'No name' : 'You'}: ${lastMessage.message}',
+                                  : (lastMessage as types.TextMessage).text,
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -294,8 +381,18 @@ class _HomeWidgetState extends State<HomeWidget>
   }
 
   @override
-  void dispose() {
-    super.dispose();
+  void Mesibo_onMessageStatus(MesiboMessage message) {
+    // TODO: implement Mesibo_onMessageStatus
+  }
+
+  @override
+  void Mesibo_onMessageUpdate(MesiboMessage message) {
+    // TODO: implement Mesibo_onMessageUpdate
+  }
+
+  @override
+  void Mesibo_onSync(MesiboReadSession rs, int count) {
+    // TODO: implement Mesibo_onSync
   }
 }
 
@@ -303,10 +400,16 @@ class ChatScreen extends StatefulWidget {
   const ChatScreen({
     super.key,
     required this.user,
-    required this.handleSendPressed,
+    required this.selectedUser,
+    required this.messagesValueListenable,
+    required this.sendMsg,
+    required this.readProfileMsg,
   });
   final types.User user;
-  final void Function(types.PartialText) handleSendPressed;
+  final int selectedUser;
+  final ValueNotifier<List<types.Message>> messagesValueListenable;
+  final Function(types.PartialText) sendMsg;
+  final Function() readProfileMsg;
 
   @override
   State<ChatScreen> createState() => _CustomBottomSheetState();
@@ -314,29 +417,24 @@ class ChatScreen extends StatefulWidget {
 
 class _CustomBottomSheetState extends State<ChatScreen> {
   @override
+  void initState() {
+    super.initState();
+    widget.readProfileMsg();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer<MessagesProvider>(builder: (context, dataProvider, _) {
-      return Chat(
-        inputOptions: const InputOptions(
-          sendButtonVisibilityMode: SendButtonVisibilityMode.always,
-        ),
-        messages: dataProvider.messages
-            .map(
-              (m) => types.TextMessage(
-                author: types.User(
-                    id: m.isIncoming()
-                        ? m.profile?.address ?? ''
-                        : widget.user.id),
-                text: m.message ?? '',
-                id: m.mid.toString(),
-              ),
-            )
-            .toList()
-            .reversed
-            .toList(),
-        onSendPressed: widget.handleSendPressed,
-        user: widget.user,
-      );
-    });
+    return ValueListenableBuilder(
+        valueListenable: widget.messagesValueListenable,
+        builder: (context, val, child) {
+          return Chat(
+            inputOptions: const InputOptions(
+              sendButtonVisibilityMode: SendButtonVisibilityMode.always,
+            ),
+            messages: val.toList(),
+            onSendPressed: widget.sendMsg,
+            user: widget.user,
+          );
+        });
   }
 }
